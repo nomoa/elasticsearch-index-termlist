@@ -86,7 +86,13 @@ public class TransportTermlistAction
                 if (shardResponse instanceof ShardTermlistResponse) {
                     successfulShards++;
                     ShardTermlistResponse resp = (ShardTermlistResponse) shardResponse;
-                    merge(map, resp.getTermList());
+                    Map<String, TermInfo> smaller = resp.getTermList();
+                    // Always merge into the biggest map
+                    if(smaller.size() > map.size()) {
+                    	smaller = map;
+                    	map = resp.getTermList();
+                    }
+                    merge(map, smaller);
                 }
             }
         }
@@ -204,36 +210,37 @@ public class TransportTermlistAction
 
     private void merge(Map<String, TermInfo> map, Map<String, TermInfo> other) {
         for (Map.Entry<String, TermInfo> t : other.entrySet()) {
-            if (map.containsKey(t.getKey())) {
-                TermInfo info = map.get(t.getKey());
+        	TermInfo replaced = map.put(t.getKey(), t.getValue());
+        	if(replaced != null) {
+        		TermInfo info = t.getValue();
                 Integer termFreq = info.getTermFreq();
                 if (termFreq != null) {
-                    if (t.getValue().getTermFreq() != null) {
-                        info.setTermFreq(termFreq + t.getValue().getTermFreq());
+                    if (replaced.getTermFreq() != null) {
+                        info.setTermFreq(termFreq + replaced.getTermFreq());
                     }
                 } else {
-                    if (t.getValue().getTermFreq() != null) {
-                        info.setTermFreq(t.getValue().getTermFreq());
+                    if (replaced.getTermFreq() != null) {
+                        info.setTermFreq(replaced.getTermFreq());
                     }
                 }
                 Integer docFreq = info.getDocFreq();
                 if (docFreq != null) {
-                    if (t.getValue().getDocFreq() != null) {
-                        info.setDocFreq(docFreq + t.getValue().getDocFreq());
+                    if (replaced.getDocFreq() != null) {
+                        info.setDocFreq(docFreq + replaced.getDocFreq());
                     }
                 } else {
-                    if (t.getValue().getDocFreq() != null) {
-                        info.setDocFreq(t.getValue().getDocFreq());
+                    if (replaced.getDocFreq() != null) {
+                        info.setDocFreq(replaced.getDocFreq());
                     }
                 }
                 Long totalFreq = info.getTotalFreq();
                 if (totalFreq != null) {
-                    if (t.getValue().getTotalFreq() != null) {
-                        info.setTotalFreq(totalFreq + t.getValue().getTotalFreq());
+                    if (replaced.getTotalFreq() != null) {
+                        info.setTotalFreq(totalFreq + replaced.getTotalFreq());
                     }
                 } else {
-                    if (t.getValue().getTotalFreq() != null) {
-                        info.setTotalFreq(t.getValue().getTotalFreq());
+                    if (replaced.getTotalFreq() != null) {
+                        info.setTotalFreq(replaced.getTotalFreq());
                     }
                 }
                 if (info.getTermFreq() != null && info.getTotalFreq() != null && info.getDocFreq() != null) {
@@ -241,8 +248,6 @@ public class TransportTermlistAction
                     double idf = Math.log((info.getTotalFreq() / (double) info.getDocFreq() + 1) + 1.0);
                     info.setTfIdf(tf * idf);
                 }
-            } else {
-                map.put(t.getKey(), t.getValue());
             }
         }
     }
