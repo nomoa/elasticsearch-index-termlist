@@ -9,6 +9,7 @@ import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import org.apache.lucene.index.DocsAndPositionsEnum;
+import org.apache.lucene.index.DocsEnum;
 import org.apache.lucene.index.Fields;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.MultiFields;
@@ -93,7 +94,12 @@ public class TransportTermlistAction
                     successfulShards++;
                     ShardTermlistResponse resp = (ShardTermlistResponse) shardResponse;
                     numdocs += resp.getNumDocs();
-                    update(map, resp.getTermList());
+                    Map<String, TermInfo> smallMap = resp.getTermList();
+                    if(smallMap.size() > map.size()) {
+                        smallMap = map;
+                        map = resp.getTermList();
+                    }
+                    update(map, smallMap);
                 }
             }
         }
@@ -163,22 +169,19 @@ public class TransportTermlistAction
                                 if (termsEnum.docFreq() < 1) {
                                     continue;
                                 }
-                                if (termsEnum.totalTermFreq() < 1) {
-                                    continue;
-                                }
                                 // docFreq() = the number of documents containing the current term
                                 // totalTermFreq() = total number of occurrences of this term across all documents
                                 Term term = new Term(field, text);
                                 if (request.getRequest().getTerm() == null || term.text().startsWith(request.getRequest().getTerm())) {
                                     TermInfo termInfo = new TermInfo();
-                                    DocsAndPositionsEnum docPosEnum = termsEnum.docsAndPositions(null, null);
+                                    DocsEnum docPosEnum = termsEnum.docs(null, null);
                                     SummaryStatistics stat = new SummaryStatistics();
-                                    while (docPosEnum.nextDoc() != DocsAndPositionsEnum.NO_MORE_DOCS) {
+                                    while (docPosEnum.nextDoc() != DocsEnum.NO_MORE_DOCS) {
                                         stat.addValue(docPosEnum.freq());
                                     }
                                     termInfo.setSummaryStatistics(stat);
                                     termInfo.setDocFreq(termsEnum.docFreq());
-                                    termInfo.setTotalFreq(termsEnum.totalTermFreq());
+                                    termInfo.setTotalFreq(termsEnum.totalTermFreq() > 0 ? termsEnum.totalTermFreq() : 0);
                                     map.put(term.text(), termInfo);
                                 }
                             }
@@ -196,42 +199,40 @@ public class TransportTermlistAction
     }
 
     private void update(Map<String, TermInfo> map, Map<String, TermInfo> other) {
-        for (Map.Entry<String, TermInfo> t2 : other.entrySet()) {
-            if (map.containsKey(t2.getKey())) {
-                TermInfo t1 = map.get(t2.getKey());
-                Long totalFreq = t1.getTotalFreq();
+        for (Map.Entry<String, TermInfo> tentry2 : other.entrySet()) {
+            TermInfo t2 = tentry2.getValue();
+            TermInfo t1 = map.put(tentry2.getKey(), t2);
+            if (t1 != null) {
+                Long totalFreq = t2.getTotalFreq();
                 if (totalFreq != null) {
-                    if (t2.getValue().getTotalFreq() != null) {
-                        t1.setTotalFreq(totalFreq + t2.getValue().getTotalFreq());
+                    if (t1.getTotalFreq() != null) {
+                        t2.setTotalFreq(totalFreq + t1.getTotalFreq());
                     }
                 } else {
-                    if (t2.getValue().getTotalFreq() != null) {
-                        t1.setTotalFreq(t2.getValue().getTotalFreq());
+                    if (t1.getTotalFreq() != null) {
+                        t2.setTotalFreq(t1.getTotalFreq());
                     }
                 }
-                Integer docFreq = t1.getDocFreq();
+                Integer docFreq = t2.getDocFreq();
                 if (docFreq != null) {
-                    if (t2.getValue().getDocFreq() != null) {
-                        t1.setDocFreq(docFreq + t2.getValue().getDocFreq());
+                    if (t1.getDocFreq() != null) {
+                        t2.setDocFreq(docFreq + t1.getDocFreq());
                     }
                 } else {
-                    if (t2.getValue().getDocFreq() != null) {
-                        t1.setDocFreq(t2.getValue().getDocFreq());
+                    if (t1.getDocFreq() != null) {
+                        t2.setDocFreq(t1.getDocFreq());
                     }
                 }
-                SummaryStatistics summaryStatistics = t1.getSummaryStatistics();
+                SummaryStatistics summaryStatistics = t2.getSummaryStatistics();
                 if (summaryStatistics != null) {
-                    if (t2.getValue().getSummaryStatistics() != null) {
-                        summaryStatistics.update(t2.getValue().getSummaryStatistics());
+                    if (t1.getSummaryStatistics() != null) {
+                        summaryStatistics.update(t1.getSummaryStatistics());
                     }
                 } else {
-                    if (t2.getValue().getSummaryStatistics() != null) {
-                        t1.setSummaryStatistics(t2.getValue().getSummaryStatistics());
+                    if (t1.getSummaryStatistics() != null) {
+                        t2.setSummaryStatistics(t1.getSummaryStatistics());
                     }
                 }
-                map.put(t2.getKey(), t1);
-            } else {
-                map.put(t2.getKey(), t2.getValue());
             }
         }
     }
